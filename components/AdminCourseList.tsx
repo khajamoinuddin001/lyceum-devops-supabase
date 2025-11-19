@@ -59,8 +59,9 @@ export const AdminCourseList: React.FC<AdminCourseListProps> = ({ courses, enrol
                     View
                   </button>
                    <button 
+                    onClick={() => setCurrentView(`lms/manage/${course.id}`)}
                     className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                    aria-label="Edit course"
+                    aria-label="Edit course content"
                   >
                     <PencilIcon />
                   </button>

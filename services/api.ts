@@ -20,7 +20,6 @@ export const getCourses = async (): Promise<Course[]> => {
 
 export const getContacts = async (): Promise<Contact[]> => {
   // Fetch contacts with their related notes and documents
-  // Note: We assume the foreign keys are set up correctly so Supabase can infer relationships
   const { data, error } = await supabase
     .from('contacts')
     .select('*, notes(*), documents(*)')
@@ -28,12 +27,12 @@ export const getContacts = async (): Promise<Contact[]> => {
 
   if (error) handleError(error);
   
-  // Ensure notes and documents are arrays (Supabase might return null for empty relations sometimes depending on query)
+  // Ensure notes and documents are arrays
   return (data || []).map((contact: any) => ({
     ...contact,
     notes: contact.notes || [],
     documents: contact.documents || [],
-    enrolledCourses: contact.enrolledCourses || [] // Ensure text[] is handled
+    enrolledCourses: contact.enrolledCourses || [] 
   })) as Contact[];
 };
 
@@ -56,7 +55,6 @@ export const getInvoices = async (): Promise<Invoice[]> => {
 };
 
 export const updateLessonCompletion = async (courseId: string, moduleId: string, lessonId: string, completed: boolean): Promise<Lesson> => {
-  // 1. Fetch the specific course to get current modules
   const { data: course, error: fetchError } = await supabase
     .from('courses')
     .select('*')
@@ -65,7 +63,6 @@ export const updateLessonCompletion = async (courseId: string, moduleId: string,
 
   if (fetchError) handleError(fetchError);
 
-  // 2. Update the specific lesson in the JSON structure
   const modules = course.modules as Module[];
   let targetLesson: Lesson | null = null;
   
@@ -87,7 +84,6 @@ export const updateLessonCompletion = async (courseId: string, moduleId: string,
 
   if (!targetLesson) throw new Error("Lesson not found");
 
-  // 3. Save the updated JSON back to the database
   const { error: updateError } = await supabase
     .from('courses')
     .update({ modules: updatedModules })
@@ -111,7 +107,6 @@ export const updateCourseCompletionDate = async (courseId: string, date: string)
 };
 
 export const enrollInCourse = async (courseId: string): Promise<Course> => {
-  // In this V2 MVP, we toggle the 'enrolled' flag on the course itself.
   const { data, error } = await supabase
     .from('courses')
     .update({ enrolled: true })
@@ -124,18 +119,16 @@ export const enrollInCourse = async (courseId: string): Promise<Course> => {
 };
 
 export const addNoteToContact = async (contactId: string, note: Note): Promise<Contact> => {
-  // 1. Insert the note
   const { error: insertError } = await supabase
     .from('notes')
     .insert({
-      "contactId": contactId, // Explicitly quoted to match case-sensitive column if created via SQL script provided
+      "contactId": contactId, 
       text: note.text,
       date: note.date
     });
 
   if (insertError) handleError(insertError);
 
-  // 2. Return the updated contact with all notes
   const { data, error: fetchError } = await supabase
     .from('contacts')
     .select('*, notes(*), documents(*)')
@@ -152,7 +145,6 @@ export const addNoteToContact = async (contactId: string, note: Note): Promise<C
 };
 
 export const addDocumentToContact = async (contactId: string, doc: Document): Promise<Contact> => {
-  // 1. Insert the document record
   const { error: insertError } = await supabase
     .from('documents')
     .insert({
@@ -165,7 +157,6 @@ export const addDocumentToContact = async (contactId: string, doc: Document): Pr
 
   if (insertError) handleError(insertError);
 
-  // 2. Return updated contact
   const { data, error: fetchError } = await supabase
     .from('contacts')
     .select('*, notes(*), documents(*)')
@@ -182,18 +173,16 @@ export const addDocumentToContact = async (contactId: string, doc: Document): Pr
 };
 
 export const addContact = async (contactData: Omit<Contact, 'id' | 'avatar' | 'enrolledCourses' | 'notes' | 'documents'>): Promise<Contact> => {
-  // Generate a random avatar for the new contact
   const avatar = `https://picsum.photos/seed/${Math.random()}/200`;
 
-  // Insert into Supabase
   const { data, error } = await supabase
     .from('contacts')
     .insert({
       ...contactData,
       avatar,
-      enrolledCourses: [] // Default empty array
+      enrolledCourses: [] 
     })
-    .select('*, notes(*), documents(*)') // Select with relations to match return type
+    .select('*, notes(*), documents(*)')
     .single();
 
   if (error) handleError(error);
@@ -206,7 +195,6 @@ export const addContact = async (contactData: Omit<Contact, 'id' | 'avatar' | 'e
 };
 
 export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'completionDate'>): Promise<Course> => {
-  // Generate a simple slug ID from the title
   const id = courseData.title.toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '');
@@ -227,4 +215,78 @@ export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'co
 
   if (error) handleError(error);
   return data as Course;
+};
+
+// --- NEW V2.1 FUNCTIONS FOR LESSON MANAGER ---
+
+export const addModule = async (courseId: string, moduleTitle: string): Promise<Course> => {
+    // 1. Get the course
+    const { data: course, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+    
+    if (fetchError) handleError(fetchError);
+
+    // 2. Create new module
+    const newModule: Module = {
+        id: `mod-${Date.now()}`,
+        title: moduleTitle,
+        lessons: []
+    };
+
+    // 3. Append to existing modules
+    const updatedModules = [...(course.modules || []), newModule];
+
+    // 4. Save back to DB
+    const { data: updatedCourse, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
+
+    if (updateError) handleError(updateError);
+    return updatedCourse as Course;
+};
+
+export const addLesson = async (courseId: string, moduleId: string, lesson: Omit<Lesson, 'id' | 'completed'>): Promise<Course> => {
+    // 1. Get the course
+    const { data: course, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+    if (fetchError) handleError(fetchError);
+
+    // 2. Prepare the new lesson
+    const newLesson: Lesson = {
+        ...lesson,
+        id: `lesson-${Date.now()}`,
+        completed: false
+    };
+
+    // 3. Insert lesson into the correct module
+    const updatedModules = (course.modules as Module[]).map(mod => {
+        if (mod.id === moduleId) {
+            return {
+                ...mod,
+                lessons: [...mod.lessons, newLesson]
+            };
+        }
+        return mod;
+    });
+
+    // 4. Save back to DB
+    const { data: updatedCourse, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
+
+    if (updateError) handleError(updateError);
+    return updatedCourse as Course;
 };

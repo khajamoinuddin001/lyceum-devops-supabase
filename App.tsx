@@ -26,13 +26,14 @@ const StudyBuddy = lazy(() => import('./components/StudyBuddy').then(m => ({ def
 const LessonView = lazy(() => import('./components/LessonView').then(m => ({ default: m.LessonView })));
 const Certificate = lazy(() => import('./components/Certificate').then(m => ({ default: m.Certificate })));
 const AdminCourseList = lazy(() => import('./components/AdminCourseList').then(m => ({ default: m.AdminCourseList })));
+const LessonManager = lazy(() => import('./components/LessonManager').then(m => ({ default: m.LessonManager })));
 
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userRole, setUserRole] = useState<UserRole>('admin'); // Default role
   const [currentView, setCurrentView] = useState('dashboard');
-  const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse } = useAdminData();
+  const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse, handleAddModule, handleAddLesson } = useAdminData();
   const [theme, toggleTheme] = useDarkMode();
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -106,6 +107,7 @@ const App: React.FC = () => {
     };
     const viewPrefix = currentView.split('/')[0];
     if (currentView.startsWith('lms/courses/') && currentView !== 'lms/courses/new') return 'Course Details';
+    if (currentView.startsWith('lms/manage/')) return 'Manage Curriculum';
     if (currentView.startsWith('my-courses/')) return 'Course Details';
     if (currentView.startsWith('lesson/')) return 'Lesson';
     if (currentView.startsWith('contacts/') && currentView !== 'contacts/new') return 'Contact Details';
@@ -175,6 +177,11 @@ const App: React.FC = () => {
       const courseId = currentView.split('/')[2];
       const course = courses.find(c => c.id === courseId);
       if (course) return <CourseDetail course={course} toggleLessonCompletion={toggleLessonCompletion} setCurrentView={setCurrentView} />;
+    }
+    if (currentView.startsWith('lms/manage/')) {
+        const courseId = currentView.split('/')[2];
+        const course = courses.find(c => c.id === courseId);
+        if (course) return <LessonManager course={course} setCurrentView={setCurrentView} onAddModule={handleAddModule} onAddLesson={handleAddLesson} />;
     }
      if (currentView.startsWith('contacts/')) {
       const contactId = currentView.split('/')[1];

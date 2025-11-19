@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Course, Contact, CrmDeal, Invoice, Note, Document } from '../types';
+import type { Course, Contact, CrmDeal, Invoice, Note, Document, Lesson } from '../types';
 import * as api from '../services/api';
 import { useToast } from '../components/Toast';
 
@@ -173,5 +173,41 @@ export const useAdminData = () => {
     }
   }, [addToast]);
 
-  return { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse };
+  const handleAddModule = useCallback(async (courseId: string, moduleTitle: string) => {
+    try {
+        const updatedCourse = await api.addModule(courseId, moduleTitle);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        addToast("Module added successfully", "success");
+    } catch (error) {
+        console.error(error);
+        addToast("Failed to add module", "error");
+    }
+  }, [addToast]);
+
+  const handleAddLesson = useCallback(async (courseId: string, moduleId: string, lesson: Omit<Lesson, 'id' | 'completed'>) => {
+    try {
+        const updatedCourse = await api.addLesson(courseId, moduleId, lesson);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        addToast("Lesson added successfully", "success");
+    } catch (error) {
+        console.error(error);
+        addToast("Failed to add lesson", "error");
+    }
+  }, [addToast]);
+
+  return { 
+    courses, 
+    contacts, 
+    deals, 
+    invoices, 
+    toggleLessonCompletion, 
+    enrollInCourse, 
+    addNote, 
+    addDocument, 
+    loading, 
+    addNewContact, 
+    addNewCourse,
+    handleAddModule,
+    handleAddLesson
+  };
 };
