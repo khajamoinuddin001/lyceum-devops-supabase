@@ -18,7 +18,10 @@ export const AdminCourseList: React.FC<AdminCourseListProps> = ({ courses, enrol
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Course Management</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage your academy's course offerings.</p>
         </div>
-        <button className="bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-700">
+        <button 
+            onClick={() => setCurrentView('courses/new')}
+            className="bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-700"
+        >
             Create New Course
         </button>
       </div>

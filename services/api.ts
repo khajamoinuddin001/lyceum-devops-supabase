@@ -204,3 +204,27 @@ export const addContact = async (contactData: Omit<Contact, 'id' | 'avatar' | 'e
       documents: []
   } as Contact;
 };
+
+export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'completionDate'>): Promise<Course> => {
+  // Generate a simple slug ID from the title
+  const id = courseData.title.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+  const { data, error } = await supabase
+    .from('courses')
+    .insert({
+      id,
+      title: courseData.title,
+      instructor: courseData.instructor,
+      description: courseData.description,
+      thumbnail: courseData.thumbnail,
+      modules: courseData.modules,
+      enrolled: false
+    })
+    .select()
+    .single();
+
+  if (error) handleError(error);
+  return data as Course;
+};

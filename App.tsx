@@ -4,7 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { useAdminData } from './hooks/useLmsData';
 import { useDarkMode } from './hooks/useDarkMode';
-import { UserRole, Contact } from './types';
+import { UserRole, Course, Contact } from './types';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GenericSkeleton } from './components/loaders/GenericSkeleton';
 import { Auth } from './components/Auth';
@@ -19,6 +19,7 @@ const CourseDetail = lazy(() => import('./components/CourseDetail').then(m => ({
 const ContactList = lazy(() => import('./components/ContactList').then(m => ({ default: m.ContactList })));
 const ContactDetail = lazy(() => import('./components/ContactDetail').then(m => ({ default: m.ContactDetail })));
 const AddContact = lazy(() => import('./components/AddContact').then(m => ({ default: m.AddContact })));
+const AddCourse = lazy(() => import('./components/AddCourse').then(m => ({ default: m.AddCourse })));
 const CrmBoard = lazy(() => import('./components/CrmBoard').then(m => ({ default: m.CrmBoard })));
 const Accounting = lazy(() => import('./components/Accounting').then(m => ({ default: m.Accounting })));
 const StudyBuddy = lazy(() => import('./components/StudyBuddy').then(m => ({ default: m.StudyBuddy })));
@@ -31,7 +32,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userRole, setUserRole] = useState<UserRole>('admin'); // Default role
   const [currentView, setCurrentView] = useState('dashboard');
-  const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact } = useAdminData();
+  const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse } = useAdminData();
   const [theme, toggleTheme] = useDarkMode();
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -96,6 +97,7 @@ const App: React.FC = () => {
       'contacts/new': 'Create New Contact',
       crm: 'CRM Pipeline',
       lms: 'LMS Course Management',
+      'lms/courses/new': 'Create New Course',
       accounting: 'Accounting',
       'study-buddy': 'Study Buddy',
       // Student
@@ -103,7 +105,8 @@ const App: React.FC = () => {
       catalog: 'Course Catalog',
     };
     const viewPrefix = currentView.split('/')[0];
-    if (currentView.startsWith('lms/courses/') || currentView.startsWith('my-courses/')) return 'Course Details';
+    if (currentView.startsWith('lms/courses/') && currentView !== 'lms/courses/new') return 'Course Details';
+    if (currentView.startsWith('my-courses/')) return 'Course Details';
     if (currentView.startsWith('lesson/')) return 'Lesson';
     if (currentView.startsWith('contacts/') && currentView !== 'contacts/new') return 'Contact Details';
     if (currentView.startsWith('certificate/')) return 'Certificate of Completion';
@@ -116,6 +119,13 @@ const App: React.FC = () => {
     if (newContact) {
       setCurrentView(`contacts`);
     }
+  };
+
+  const handleAddCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'completionDate'>) => {
+      const newCourse = await addNewCourse(courseData);
+      if (newCourse) {
+          setCurrentView('lms');
+      }
   };
 
   const renderContent = () => {
@@ -157,6 +167,9 @@ const App: React.FC = () => {
     // Admin & Staff Portal
     if (currentView === 'contacts/new') {
         return <AddContact onAddContact={handleAddContact} setCurrentView={setCurrentView} />;
+    }
+    if (currentView === 'lms/courses/new') {
+        return <AddCourse onAddCourse={handleAddCourse} setCurrentView={setCurrentView} />;
     }
     if (currentView.startsWith('lms/courses/')) {
       const courseId = currentView.split('/')[2];

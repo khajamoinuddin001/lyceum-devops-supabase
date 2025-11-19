@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import type { Course, Contact, CrmDeal, Invoice, Note, Document } from '../types';
 import * as api from '../services/api';
@@ -159,5 +160,18 @@ export const useAdminData = () => {
     }
   }, [contacts, addToast]);
 
-  return { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact };
+  const addNewCourse = useCallback(async (courseData: Omit<Course, 'id' | 'enrolled' | 'completionDate'>) => {
+    try {
+        const newCourse = await api.addCourse(courseData);
+        setCourses(prev => [...prev, newCourse]);
+        addToast("Course created successfully!", "success");
+        return newCourse;
+    } catch (error) {
+        console.error(error);
+        addToast("Failed to create course.", "error");
+        return null;
+    }
+  }, [addToast]);
+
+  return { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse };
 };
