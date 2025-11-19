@@ -3,10 +3,18 @@ export interface Lesson {
   id: string;
   title: string;
   duration: number; // in minutes
-  type: 'video' | 'text';
+  type: 'video' | 'text' | 'quiz';
   content: string;
   videoUrl?: string;
   completed: boolean;
+  questions?: Question[]; // For quiz type
+}
+
+export interface Question {
+    id: string;
+    text: string;
+    options: string[];
+    correctAnswer: number; // index of the correct option
 }
 
 export interface Module {
@@ -60,7 +68,7 @@ export interface ChatMessage {
   parts: { text: string }[];
 }
 
-export type CrmStage = 'New' | 'Qualified' | 'Proposal' | 'Won';
+export type CrmStage = 'New' | 'Qualified' | 'Proposal' | 'Won' | 'Lost';
 
 export interface CrmDeal {
   id: string;
@@ -68,6 +76,16 @@ export interface CrmDeal {
   contactId: string;
   stage: CrmStage;
   value: number;
+  // Extended fields
+  probability?: number;
+  expectedClosingDate?: string;
+  salesperson?: string;
+  assignedTo?: string;
+  coachingInterest?: string;
+  countryInterest?: string;
+  visaType?: string;
+  tags?: string[];
+  notes?: string;
 }
 
 export type InvoiceStatus = 'Draft' | 'Sent' | 'Paid' | 'Overdue';

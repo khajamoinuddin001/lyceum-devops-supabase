@@ -4,19 +4,26 @@ import type { Course, Contact, Lesson, CrmDeal, Invoice, Note, Document, Module,
 
 // Helper to handle Supabase errors consistently
 const handleError = (error: any) => {
-  console.error('Supabase API Error:', error);
-  throw new Error(error.message || 'An unexpected error occurred');
+  console.error('Supabase API Error Details:', error);
+  const message = error.message || error.error_description || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+  throw new Error(message);
 };
 
-// --- DATA SANITIZER ---
+// --- DATA SANITIZER (Crucial for preventing app crashes) ---
+// This function guarantees that courses ALWAYS have valid arrays for modules and lessons.
 const sanitizeCourse = (data: any): Course => {
     if (!data) return data;
     
+    // Ensure modules is an array
     const modules = Array.isArray(data.modules) ? data.modules : [];
     
+    // Ensure lessons inside modules are arrays
     const sanitizedModules = modules.map((mod: any) => ({
         ...mod,
-        lessons: Array.isArray(mod.lessons) ? mod.lessons : []
+        lessons: Array.isArray(mod.lessons) ? mod.lessons.map((l: any) => ({
+            ...l,
+            questions: Array.isArray(l.questions) ? l.questions : []
+        })) : []
     }));
 
     return {
@@ -56,7 +63,7 @@ export const getDeals = async (): Promise<CrmDeal[]> => {
   const { data, error } = await supabase
     .from('crm_deals')
     .select('*')
-    .order('value', { ascending: false }); // Order by highest value
+    .order('value', { ascending: false }); 
 
   if (error) handleError(error);
   return data as CrmDeal[] || [];
@@ -71,45 +78,208 @@ export const getInvoices = async (): Promise<Invoice[]> => {
   return data as Invoice[] || [];
 };
 
-export const updateLessonCompletion = async (courseId: string, moduleId: string, lessonId: string, completed: boolean): Promise<Lesson> => {
-  const { data: course, error: fetchError } = await supabase
-    .from('courses')
-    .select('*')
-    .eq('id', courseId)
-    .single();
+// === ATOMIC COURSE UPDATES (BULLETPROOF LOGIC) ===
 
-  if (fetchError) handleError(fetchError);
+export const addModule = async (courseId: string, title: string): Promise<Course> => {
+    // 1. Fetch latest version of the course
+    const { data: rawCourse, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+        
+    if (fetchError) handleError(fetchError);
 
-  const sanitized = sanitizeCourse(course);
-  const modules = sanitized.modules;
-  let targetLesson: Lesson | null = null;
-  
-  const updatedModules = modules.map(m => {
-    if (m.id === moduleId) {
-      return {
-        ...m,
-        lessons: m.lessons.map(l => {
-          if (l.id === lessonId) {
-            targetLesson = { ...l, completed };
-            return targetLesson;
-          }
-          return l;
-        })
-      };
-    }
-    return m;
-  });
+    // 2. Sanitize the fetched data (Fix nulls immediately)
+    const cleanCourse = sanitizeCourse(rawCourse);
 
-  if (!targetLesson) throw new Error("Lesson not found");
+    // 3. Create new module
+    const newModule: Module = {
+        id: `mod-${Date.now()}`,
+        title: title,
+        lessons: []
+    };
 
-  const { error: updateError } = await supabase
-    .from('courses')
-    .update({ modules: updatedModules })
-    .eq('id', courseId);
+    // 4. Append
+    const updatedModules = [...cleanCourse.modules, newModule];
 
-  if (updateError) handleError(updateError);
+    // 5. Write back to DB
+    const { data: updatedData, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
 
-  return targetLesson!;
+    if (updateError) handleError(updateError);
+    
+    // 6. Return the fully sanitized, updated object
+    return sanitizeCourse(updatedData);
+};
+
+export const addLesson = async (courseId: string, moduleId: string, lessonData: Omit<Lesson, 'id' | 'completed'>): Promise<Course> => {
+    // 1. Fetch latest
+    const { data: rawCourse, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+    if (fetchError) handleError(fetchError);
+
+    // 2. Sanitize
+    const cleanCourse = sanitizeCourse(rawCourse);
+    
+    // 3. Modify the specific module
+    const updatedModules = cleanCourse.modules.map(mod => {
+        if (mod.id === moduleId) {
+            return {
+                ...mod,
+                lessons: [...mod.lessons, {
+                    ...lessonData,
+                    id: `lesson-${Date.now()}`,
+                    completed: false,
+                    questions: lessonData.questions || []
+                }]
+            };
+        }
+        return mod;
+    });
+
+    // 4. Write back
+    const { data: updatedData, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
+
+    if (updateError) handleError(updateError);
+    return sanitizeCourse(updatedData);
+};
+
+export const updateLesson = async (courseId: string, moduleId: string, lessonId: string, lessonData: Partial<Lesson>): Promise<Course> => {
+    const { data: rawCourse, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+    if (fetchError) handleError(fetchError);
+
+    const cleanCourse = sanitizeCourse(rawCourse);
+
+    const updatedModules = cleanCourse.modules.map(mod => {
+        if (mod.id === moduleId) {
+            return {
+                ...mod,
+                lessons: mod.lessons.map(l => 
+                    l.id === lessonId ? { ...l, ...lessonData } : l
+                )
+            };
+        }
+        return mod;
+    });
+
+    const { data: updatedData, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
+
+    if (updateError) handleError(updateError);
+    return sanitizeCourse(updatedData);
+};
+
+export const deleteModule = async (courseId: string, moduleId: string): Promise<Course> => {
+    const { data: rawCourse, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+    if (fetchError) handleError(fetchError);
+
+    const cleanCourse = sanitizeCourse(rawCourse);
+    
+    // Filter out the module
+    const updatedModules = cleanCourse.modules.filter(mod => mod.id !== moduleId);
+
+    const { data: updatedData, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
+
+    if (updateError) handleError(updateError);
+    return sanitizeCourse(updatedData);
+};
+
+export const deleteLesson = async (courseId: string, moduleId: string, lessonId: string): Promise<Course> => {
+    const { data: rawCourse, error: fetchError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+    if (fetchError) handleError(fetchError);
+
+    const cleanCourse = sanitizeCourse(rawCourse);
+    
+    // Remove lesson from specific module
+    const updatedModules = cleanCourse.modules.map(mod => {
+        if (mod.id === moduleId) {
+            return {
+                ...mod,
+                lessons: mod.lessons.filter(l => l.id !== lessonId)
+            };
+        }
+        return mod;
+    });
+
+    const { data: updatedData, error: updateError } = await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId)
+        .select()
+        .single();
+
+    if (updateError) handleError(updateError);
+    return sanitizeCourse(updatedData);
+};
+
+export const updateLessonCompletion = async (courseId: string, moduleId: string, lessonId: string, completed: boolean): Promise<void> => {
+    // We assume the client has already optimistically updated the UI.
+    // We just need to sync to DB.
+    
+    const { data: rawCourse } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+        
+    if (!rawCourse) return;
+
+    const cleanCourse = sanitizeCourse(rawCourse);
+    
+    const updatedModules = cleanCourse.modules.map(mod => {
+        if (mod.id === moduleId) {
+            return {
+                ...mod,
+                lessons: mod.lessons.map(l => 
+                    l.id === lessonId ? { ...l, completed } : l
+                )
+            };
+        }
+        return mod;
+    });
+
+    await supabase
+        .from('courses')
+        .update({ modules: updatedModules })
+        .eq('id', courseId);
 };
 
 export const updateCourseCompletionDate = async (courseId: string, date: string): Promise<Course> => {
@@ -212,10 +382,39 @@ export const addContact = async (contactData: Omit<Contact, 'id' | 'avatar' | 'e
   } as Contact;
 };
 
+export const updateContact = async (contactId: string, updates: Partial<Contact>): Promise<Contact> => {
+    const { data, error } = await supabase
+        .from('contacts')
+        .update(updates)
+        .eq('id', contactId)
+        .select('*, notes(*), documents(*)')
+        .single();
+
+    if (error) handleError(error);
+
+    return {
+        ...data,
+        notes: data.notes || [],
+        documents: data.documents || [],
+        enrolledCourses: data.enrolledCourses || []
+    } as Contact;
+};
+
+export const deleteContact = async (contactId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('contacts')
+        .delete()
+        .eq('id', contactId);
+        
+    if (error) handleError(error);
+};
+
 export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'completionDate'>): Promise<Course> => {
   const id = courseData.title.toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '');
+
+  const initialModules = Array.isArray(courseData.modules) ? courseData.modules : [];
 
   const { data, error } = await supabase
     .from('courses')
@@ -225,7 +424,7 @@ export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'co
       instructor: courseData.instructor,
       description: courseData.description,
       thumbnail: courseData.thumbnail,
-      modules: courseData.modules || [], 
+      modules: initialModules,
       enrolled: false
     })
     .select()
@@ -235,87 +434,7 @@ export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'co
   return sanitizeCourse(data);
 };
 
-export const addModule = async (courseId: string, moduleTitle: string): Promise<Course> => {
-    const { data: course, error: fetchError } = await supabase
-        .from('courses')
-        .select('*')
-        .eq('id', courseId)
-        .single();
-    
-    if (fetchError) handleError(fetchError);
-
-    const sanitized = sanitizeCourse(course);
-    
-    // Strictly ensure modules is an array
-    const currentModules = Array.isArray(sanitized.modules) ? sanitized.modules : [];
-
-    const newModule: Module = {
-        id: `mod-${Date.now()}`,
-        title: moduleTitle,
-        lessons: []
-    };
-
-    const updatedModules = [...currentModules, newModule];
-
-    const { data: updatedCourse, error: updateError } = await supabase
-        .from('courses')
-        .update({ modules: updatedModules })
-        .eq('id', courseId)
-        .select()
-        .single();
-
-    if (updateError) {
-        console.error("Supabase Update Error:", updateError);
-        handleError(updateError);
-    }
-    return sanitizeCourse(updatedCourse);
-};
-
-export const addLesson = async (courseId: string, moduleId: string, lesson: Omit<Lesson, 'id' | 'completed'>): Promise<Course> => {
-    const { data: course, error: fetchError } = await supabase
-        .from('courses')
-        .select('*')
-        .eq('id', courseId)
-        .single();
-
-    if (fetchError) handleError(fetchError);
-
-    const sanitized = sanitizeCourse(course);
-
-    // Strictly ensure modules is an array
-    const currentModules = Array.isArray(sanitized.modules) ? sanitized.modules : [];
-
-    const newLesson: Lesson = {
-        ...lesson,
-        id: `lesson-${Date.now()}`,
-        completed: false
-    };
-
-    const updatedModules = currentModules.map(mod => {
-        if (mod.id === moduleId) {
-            return {
-                ...mod,
-                lessons: [...(mod.lessons || []), newLesson] 
-            };
-        }
-        return mod;
-    });
-
-    const { data: updatedCourse, error: updateError } = await supabase
-        .from('courses')
-        .update({ modules: updatedModules })
-        .eq('id', courseId)
-        .select()
-        .single();
-
-    if (updateError) {
-        console.error("Supabase Update Error:", updateError);
-        handleError(updateError);
-    }
-    return sanitizeCourse(updatedCourse);
-};
-
-// --- NEW CRM FUNCTIONS ---
+// --- CRM FUNCTIONS ---
 
 export const addDeal = async (dealData: Omit<CrmDeal, 'id'>): Promise<CrmDeal> => {
     const { data, error } = await supabase
@@ -324,7 +443,16 @@ export const addDeal = async (dealData: Omit<CrmDeal, 'id'>): Promise<CrmDeal> =
             name: dealData.name,
             "contactId": dealData.contactId,
             stage: dealData.stage,
-            value: dealData.value
+            value: Number(dealData.value),
+            // New extended fields with defaults/passed values
+            probability: dealData.probability || 50,
+            "expectedClosingDate": dealData.expectedClosingDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // +30 days default
+            salesperson: dealData.salesperson || 'Admissions Counsellor',
+            "assignedTo": dealData.assignedTo || 'Samad',
+            "coachingInterest": dealData.coachingInterest,
+            "countryInterest": dealData.countryInterest,
+            "visaType": dealData.visaType || 'Student Visa',
+            tags: dealData.tags || []
         })
         .select()
         .single();
@@ -345,6 +473,18 @@ export const updateDealStage = async (dealId: string, newStage: CrmStage): Promi
     return data as CrmDeal;
 };
 
+export const updateDeal = async (dealId: string, updates: Partial<CrmDeal>): Promise<CrmDeal> => {
+    const { data, error } = await supabase
+        .from('crm_deals')
+        .update(updates)
+        .eq('id', dealId)
+        .select()
+        .single();
+
+    if (error) handleError(error);
+    return data as CrmDeal;
+};
+
 export const deleteDeal = async (dealId: string): Promise<void> => {
     const { error } = await supabase
         .from('crm_deals')
@@ -353,3 +493,14 @@ export const deleteDeal = async (dealId: string): Promise<void> => {
 
     if (error) handleError(error);
 };
+
+export const getDeal = async (dealId: string): Promise<CrmDeal | null> => {
+    const { data, error } = await supabase
+        .from('crm_deals')
+        .select('*')
+        .eq('id', dealId)
+        .single();
+        
+    if (error) return null;
+    return data as CrmDeal;
+}

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { Contact, CrmDeal, Invoice, Course } from '../types';
 import { UsersIcon } from './icons/UsersIcon';
@@ -10,6 +11,14 @@ type AdminDashboardProps = {
   deals: CrmDeal[];
   invoices: Invoice[];
   courses: Course[];
+};
+
+const formatCurrency = (value: number) => {
+    return value.toLocaleString('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 0
+    });
 };
 
 const StatCard: React.FC<{ title: string; value: string | number; description: string; icon: React.ReactNode }> = React.memo(({ title, value, description, icon }) => (
@@ -33,8 +42,8 @@ const StatCard: React.FC<{ title: string; value: string | number; description: s
 
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ contacts, deals, invoices, courses }) => {
-    const openDeals = deals.filter(d => d.stage !== 'Won');
-    const totalPipelineValue = openDeals.reduce((sum, deal) => sum + deal.value, 0).toLocaleString();
+    const openDeals = deals.filter(d => d.stage !== 'Won' && d.stage !== 'Lost');
+    const totalPipelineValue = openDeals.reduce((sum, deal) => sum + deal.value, 0);
     const overdueInvoices = invoices.filter(i => i.status === 'Overdue');
     const totalCourses = courses.length;
 
@@ -51,7 +60,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ contacts, deals,
                 <StatCard 
                     title="Open Deals" 
                     value={openDeals.length}
-                    description={`$${totalPipelineValue} in pipeline`}
+                    description={`${formatCurrency(totalPipelineValue)} in pipeline`}
                     icon={<CrmIcon />} 
                 />
                 <StatCard 

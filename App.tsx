@@ -27,13 +27,14 @@ const LessonView = lazy(() => import('./components/LessonView').then(m => ({ def
 const Certificate = lazy(() => import('./components/Certificate').then(m => ({ default: m.Certificate })));
 const AdminCourseList = lazy(() => import('./components/AdminCourseList').then(m => ({ default: m.AdminCourseList })));
 const LessonManager = lazy(() => import('./components/LessonManager').then(m => ({ default: m.LessonManager })));
-
+const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
+const CrmDealDetail = lazy(() => import('./components/CrmDealDetail').then(m => ({ default: m.CrmDealDetail })));
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userRole, setUserRole] = useState<UserRole>('admin'); // Default role
   const [currentView, setCurrentView] = useState('dashboard');
-  const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse, handleAddModule, handleAddLesson } = useAdminData();
+  const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact, addNewCourse, handleAddModule, handleAddLesson, handleUpdateLesson } = useAdminData();
   const [theme, toggleTheme] = useDarkMode();
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -101,6 +102,7 @@ const App: React.FC = () => {
       'lms/courses/new': 'Create New Course',
       accounting: 'Accounting',
       'study-buddy': 'Study Buddy',
+      settings: 'Settings',
       // Student
       'my-courses': 'My Courses',
       catalog: 'Course Catalog',
@@ -112,6 +114,7 @@ const App: React.FC = () => {
     if (currentView.startsWith('lesson/')) return 'Lesson';
     if (currentView.startsWith('contacts/') && currentView !== 'contacts/new') return 'Contact Details';
     if (currentView.startsWith('certificate/')) return 'Certificate of Completion';
+    if (currentView.startsWith('crm/')) return 'Deal Details';
 
     return labels[currentView] || labels[viewPrefix] || 'Lyceum Academy';
   }, [currentView]);
@@ -161,6 +164,7 @@ const App: React.FC = () => {
             case 'my-courses': return <StudentDashboard courses={courses} setCurrentView={setCurrentView} />;
             case 'catalog': return <CourseList courses={courses} setCurrentView={(view) => setCurrentView(`my-courses/${view.split('/')[1]}`)} enrollInCourse={enrollInCourse} />;
             case 'study-buddy': return <StudyBuddy />;
+            case 'settings': return <Settings />;
             // Default fallback for students who might have 'dashboard' in state
             default: return <StudentDashboard courses={courses} setCurrentView={setCurrentView} />;
         }
@@ -181,7 +185,20 @@ const App: React.FC = () => {
     if (currentView.startsWith('lms/manage/')) {
         const courseId = currentView.split('/')[2];
         const course = courses.find(c => c.id === courseId);
-        if (course) return <LessonManager course={course} setCurrentView={setCurrentView} onAddModule={handleAddModule} onAddLesson={handleAddLesson} />;
+        
+        // If courses are still loading, show a skeleton instead of falling through to dashboard
+        if (!course && loading) {
+             return <GenericSkeleton />;
+        }
+        
+        if (course) {
+            return <LessonManager course={course} setCurrentView={setCurrentView} onAddModule={handleAddModule} onAddLesson={handleAddLesson} />;
+        }
+        
+        // If loaded but not found
+        if (!course && !loading) {
+             return <div className="text-center p-10">Course not found.</div>
+        }
     }
      if (currentView.startsWith('contacts/')) {
       const contactId = currentView.split('/')[1];
@@ -201,11 +218,15 @@ const App: React.FC = () => {
                 />;
       }
     }
+    if (currentView.startsWith('crm/')) {
+        const dealId = currentView.split('/')[1];
+        return <CrmDealDetail dealId={dealId} setCurrentView={setCurrentView} />;
+    }
     
     switch (currentView) {
       case 'dashboard': return <AdminDashboard contacts={contacts} deals={deals} invoices={invoices} courses={courses} />;
       case 'contacts': return <ContactList contacts={contacts} setCurrentView={setCurrentView} />;
-      case 'crm': return <CrmBoard deals={deals} contacts={contacts} />;
+      case 'crm': return <CrmBoard deals={deals} contacts={contacts} setCurrentView={setCurrentView} />;
       case 'lms': 
         const courseEnrollmentCounts = courses.map(course => ({
             courseId: course.id,
@@ -224,6 +245,7 @@ const App: React.FC = () => {
         }
         return <Accounting invoices={invoices} contacts={contacts} />;
       case 'study-buddy': return <StudyBuddy />;
+      case 'settings': return <Settings />;
       default: return <AdminDashboard contacts={contacts} deals={deals} invoices={invoices} courses={courses} />;
     }
   };

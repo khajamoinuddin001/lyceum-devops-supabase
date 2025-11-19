@@ -6,6 +6,14 @@ type StatusBadgeProps = {
   status: Invoice['status'];
 };
 
+const formatCurrency = (value: number) => {
+    return value.toLocaleString('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 2
+    });
+};
+
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   const styles: { [key in Invoice['status']]: string } = {
     Paid: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -48,7 +56,7 @@ export const Accounting: React.FC<AccountingProps> = ({ invoices, contacts }) =>
                 <tr key={invoice.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
                   <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{invoice.invoiceNumber}</td>
                   <td className="px-6 py-4">{contact?.name || 'Unknown'}</td>
-                  <td className="px-6 py-4">${invoice.amount.toLocaleString()}</td>
+                  <td className="px-6 py-4">{formatCurrency(invoice.amount)}</td>
                   <td className="px-6 py-4">
                     <StatusBadge status={invoice.status} />
                   </td>

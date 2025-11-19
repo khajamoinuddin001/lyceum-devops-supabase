@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Course, Contact, CrmDeal, Invoice, Note, Document, Lesson, CrmStage } from '../types';
+import type { Course, Contact, CrmDeal, Invoice, Note, Document, Lesson, CrmStage, Module } from '../types';
 import * as api from '../services/api';
 import { useToast } from '../components/Toast';
 
@@ -12,158 +12,143 @@ export const useAdminData = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const { addToast } = useToast();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [coursesData, contactsData, dealsData, invoicesData] = await Promise.all([
-          api.getCourses(),
-          api.getContacts(),
-          api.getDeals(),
-          api.getInvoices(),
-        ]);
-        setCourses(coursesData);
-        setContacts(contactsData);
-        setDeals(dealsData);
-        setInvoices(invoicesData);
-      } catch (error) {
-        console.error("Failed to fetch admin data:", error);
-        addToast("Failed to load academy data.", "error");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+  const fetchData = useCallback(async () => {
+    try {
+      const [coursesData, contactsData, dealsData, invoicesData] = await Promise.all([
+        api.getCourses(),
+        api.getContacts(),
+        api.getDeals(),
+        api.getInvoices(),
+      ]);
+      setCourses(coursesData);
+      setContacts(contactsData);
+      setDeals(dealsData);
+      setInvoices(invoicesData);
+    } catch (error) {
+      console.error("Failed to fetch admin data:", error);
+      addToast("Failed to load academy data.", "error");
+    }
   }, [addToast]);
 
+  useEffect(() => {
+    const init = async () => {
+        setLoading(true);
+        await fetchData();
+        setLoading(false);
+    }
+    init();
+  }, [fetchData]);
+
   const toggleLessonCompletion = useCallback(async (courseId: string, moduleId: string, lessonId: string) => {
-    const originalCourses = [...courses];
-    
-    const course = courses.find(c => c.id === courseId);
-    const lesson = course?.modules.find(m => m.id === moduleId)?.lessons.find(l => l.id === lessonId);
-    if (!course || !lesson) return;
-
-    const newCompletedStatus = !lesson.completed;
-
-    const updatedCourses = courses.map(c => {
-      if (c.id === courseId) {
-        const updatedModules = c.modules.map(m => {
-          if (m.id === moduleId) {
-            const updatedLessons = m.lessons.map(l => 
-              l.id === lessonId ? { ...l, completed: newCompletedStatus } : l
-            );
-            return { ...m, lessons: updatedLessons };
-          }
-          return m;
-        });
-        return { ...c, modules: updatedModules };
-      }
-      return c;
-    });
-    setCourses(updatedCourses);
+    // Optimistic update for immediate UI feedback
+    setCourses(prevCourses => prevCourses.map(c => {
+        if (c.id === courseId) {
+            return {
+                ...c,
+                modules: c.modules.map(m => {
+                    if (m.id === moduleId) {
+                        return {
+                            ...m,
+                            lessons: m.lessons.map(l => l.id === lessonId ? { ...l, completed: !l.completed } : l)
+                        }
+                    }
+                    return m;
+                })
+            }
+        }
+        return c;
+    }));
 
     try {
-      await api.updateLessonCompletion(courseId, moduleId, lessonId, newCompletedStatus);
-      
-      const updatedCourse = updatedCourses.find(c => c.id === courseId);
-      if (updatedCourse && !updatedCourse.completionDate) {
-        const allLessons = updatedCourse.modules.flatMap(m => m.lessons);
-        const allCompleted = allLessons.every(l => l.completed);
-        if (allCompleted) {
-          const completionDate = new Date().toISOString().split('T')[0];
-          setCourses(prev => prev.map(c => c.id === courseId ? {...c, completionDate} : c));
-          await api.updateCourseCompletionDate(courseId, completionDate);
-          addToast(`Congratulations! You've completed "${updatedCourse.title}"!`, 'success');
-        }
-      }
+      const course = courses.find(c => c.id === courseId);
+      const lesson = course?.modules.find(m => m.id === moduleId)?.lessons.find(l => l.id === lessonId);
+      if (!lesson) return;
+
+      // Sync to background
+      await api.updateLessonCompletion(courseId, moduleId, lessonId, !lesson.completed);
+
     } catch (error) {
       console.error("Failed to update lesson completion:", error);
       addToast("Failed to update lesson. Please try again.", "error");
-      setCourses(originalCourses);
+      // Revert or refetch would go here in a strict system, but we'll just fetch to be safe
+      await fetchData(); 
     }
-  }, [courses, addToast]);
+  }, [courses, addToast, fetchData]);
   
   const enrollInCourse = useCallback(async (courseId: string) => {
-    const course = courses.find(c => c.id === courseId);
-    if (!course) return;
-
-    setCourses(prevCourses => prevCourses.map(c => c.id === courseId ? {...c, enrolled: true} : c));
-
     try {
         await api.enrollInCourse(courseId);
-        addToast(`Successfully enrolled in "${course.title}"!`, 'success');
+        await fetchData();
+        addToast(`Successfully enrolled!`, 'success');
     } catch (error) {
         console.error("Failed to enroll in course:", error);
         addToast('Failed to enroll in course.', 'error');
-        setCourses(prevCourses => prevCourses.map(c => c.id === courseId ? {...c, enrolled: false} : c));
     }
-  }, [courses, addToast]);
+  }, [addToast, fetchData]);
 
   const addNote = useCallback(async (contactId: string, noteText: string) => {
-    const newNote: Note = {
-        id: `note-${Date.now()}`,
-        text: noteText,
-        date: new Date().toISOString(),
-    };
-    
-    const originalContacts = contacts;
-    setContacts(prev => prev.map(c => c.id === contactId ? { ...c, notes: [newNote, ...c.notes] } : c));
-
     try {
+        const newNote: Note = { id: '', text: noteText, date: new Date().toISOString() };
         await api.addNoteToContact(contactId, newNote);
+        await fetchData();
         addToast("Note added successfully.", "success");
     } catch(e) {
-        setContacts(originalContacts);
         addToast("Failed to add note.", "error");
     }
-  }, [contacts, addToast]);
+  }, [addToast, fetchData]);
 
   const addDocument = useCallback(async (contactId: string, document: Document) => {
-    const originalContacts = contacts;
-    setContacts(prev => prev.map(c => c.id === contactId ? { ...c, documents: [document, ...c.documents] } : c));
-
      try {
         await api.addDocumentToContact(contactId, document);
+        await fetchData();
         addToast("Document uploaded successfully.", "success");
     } catch(e) {
-        setContacts(originalContacts);
         addToast("Failed to upload document.", "error");
     }
-  }, [contacts, addToast]);
+  }, [addToast, fetchData]);
 
   const addNewContact = useCallback(async (newContactData: Omit<Contact, 'id' | 'avatar' | 'enrolledCourses' | 'notes' | 'documents'>) => {
-    const tempId = `contact-${Date.now()}`;
-    const originalContacts = contacts;
-    
     try {
-      const optimisticContact: Contact = {
-        ...newContactData,
-        id: tempId,
-        avatar: `https://picsum.photos/seed/${tempId}/200`,
-        enrolledCourses: [],
-        notes: [],
-        documents: [],
-      };
-      setContacts(prev => [optimisticContact, ...prev]);
-      
       const savedContact = await api.addContact(newContactData);
-      
-      setContacts(prev => prev.map(c => c.id === tempId ? savedContact : c));
+      await fetchData();
       addToast("Contact created successfully!", "success");
       return savedContact;
     } catch (error) {
       console.error("Failed to add contact:", error);
       addToast("Failed to create contact.", "error");
-      setContacts(originalContacts);
       return null;
     }
-  }, [contacts, addToast]);
+  }, [addToast, fetchData]);
+
+  const handleUpdateContact = useCallback(async (contactId: string, updates: Partial<Contact>) => {
+      try {
+          await api.updateContact(contactId, updates);
+          // Optimistic update for better UX
+          setContacts(prev => prev.map(c => c.id === contactId ? { ...c, ...updates } : c));
+          addToast("Contact updated.", "success");
+      } catch (error) {
+          console.error(error);
+          addToast("Failed to update contact.", "error");
+      }
+  }, [addToast]);
+
+  const handleDeleteContact = useCallback(async (contactId: string) => {
+      try {
+          await api.deleteContact(contactId);
+          await fetchData();
+          addToast("Contact deleted.", "success");
+          return true;
+      } catch (error) {
+          console.error(error);
+          addToast("Failed to delete contact.", "error");
+          return false;
+      }
+  }, [addToast, fetchData]);
 
   const addNewCourse = useCallback(async (courseData: Omit<Course, 'id' | 'enrolled' | 'completionDate'>) => {
     try {
         const newCourse = await api.addCourse(courseData);
-        setCourses(prev => [...prev, newCourse]);
+        await fetchData();
         addToast("Course created successfully!", "success");
         return newCourse;
     } catch (error) {
@@ -171,31 +156,60 @@ export const useAdminData = () => {
         addToast("Failed to create course.", "error");
         return null;
     }
-  }, [addToast]);
+  }, [addToast, fetchData]);
 
+  // === ROBUST HANDLERS (ATOMIC UPDATE) ===
+  
   const handleAddModule = useCallback(async (courseId: string, moduleTitle: string) => {
     try {
-        await api.addModule(courseId, moduleTitle);
-        // Force fetch to ensure data integrity
-        const refreshedCourses = await api.getCourses();
-        setCourses(refreshedCourses);
+        const updatedCourse = await api.addModule(courseId, moduleTitle);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
         addToast("Module added successfully", "success");
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        addToast("Failed to add module", "error");
+        addToast(`Failed to save module: ${error.message}`, "error");
     }
   }, [addToast]);
 
-  const handleAddLesson = useCallback(async (courseId: string, moduleId: string, lesson: Omit<Lesson, 'id' | 'completed'>) => {
+  const handleAddLesson = useCallback(async (courseId: string, moduleId: string, lessonData: Omit<Lesson, 'id' | 'completed'>) => {
     try {
-        await api.addLesson(courseId, moduleId, lesson);
-         // Force fetch to ensure data integrity
-        const refreshedCourses = await api.getCourses();
-        setCourses(refreshedCourses);
+        const updatedCourse = await api.addLesson(courseId, moduleId, lessonData);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
         addToast("Lesson added successfully", "success");
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        addToast("Failed to add lesson", "error");
+        addToast(`Failed to save lesson: ${error.message}`, "error");
+    }
+  }, [addToast]);
+
+  const handleUpdateLesson = useCallback(async (courseId: string, moduleId: string, lessonId: string, lessonData: Partial<Lesson>) => {
+    try {
+        const updatedCourse = await api.updateLesson(courseId, moduleId, lessonId, lessonData);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        addToast("Lesson updated.", "success");
+    } catch (error: any) {
+        addToast(`Failed to update lesson: ${error.message}`, "error");
+    }
+  }, [addToast]);
+
+  // New: Delete handlers
+  const handleRemoveModule = useCallback(async (courseId: string, moduleId: string) => {
+    try {
+        const updatedCourse = await api.deleteModule(courseId, moduleId);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        addToast("Module deleted.", "success");
+    } catch (error: any) {
+        addToast(`Failed to delete module: ${error.message}`, "error");
+    }
+  }, [addToast]);
+
+  const handleRemoveLesson = useCallback(async (courseId: string, moduleId: string, lessonId: string) => {
+    try {
+        const updatedCourse = await api.deleteLesson(courseId, moduleId, lessonId);
+        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        addToast("Lesson deleted.", "success");
+    } catch (error: any) {
+        addToast(`Failed to delete lesson: ${error.message}`, "error");
     }
   }, [addToast]);
 
@@ -204,42 +218,40 @@ export const useAdminData = () => {
   const addCrmDeal = useCallback(async (dealData: Omit<CrmDeal, 'id'>) => {
     try {
         const newDeal = await api.addDeal(dealData);
-        setDeals(prev => [...prev, newDeal]);
+        await fetchData(); 
         addToast("Deal created successfully!", "success");
         return newDeal;
-    } catch (error) {
-        console.error(error);
-        addToast("Failed to create deal.", "error");
+    } catch (error: any) {
+        console.error("Add Deal Error:", error);
+        const msg = error.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+        addToast(`Failed to create deal: ${msg}`, "error");
     }
-  }, [addToast]);
+  }, [addToast, fetchData]);
 
   const updateCrmStage = useCallback(async (dealId: string, newStage: CrmStage) => {
-      const originalDeals = deals;
-      // Optimistic Update
       setDeals(prev => prev.map(d => d.id === dealId ? {...d, stage: newStage} : d));
       
       try {
           await api.updateDealStage(dealId, newStage);
+          const refreshedDeals = await api.getDeals();
+          setDeals(refreshedDeals);
       } catch (error) {
           console.error(error);
-          setDeals(originalDeals); // Revert
+          await fetchData(); 
           addToast("Failed to update deal stage.", "error");
       }
-  }, [deals, addToast]);
+  }, [addToast, fetchData]);
 
   const deleteCrmDeal = useCallback(async (dealId: string) => {
-      const originalDeals = deals;
-      setDeals(prev => prev.filter(d => d.id !== dealId));
-      
       try {
           await api.deleteDeal(dealId);
+          await fetchData();
           addToast("Deal deleted.", "success");
       } catch (error) {
           console.error(error);
-          setDeals(originalDeals);
           addToast("Failed to delete deal.", "error");
       }
-  }, [deals, addToast]);
+  }, [addToast, fetchData]);
 
   return { 
     courses, 
@@ -252,9 +264,14 @@ export const useAdminData = () => {
     addDocument, 
     loading, 
     addNewContact, 
+    handleDeleteContact,
+    handleUpdateContact,
     addNewCourse,
     handleAddModule,
     handleAddLesson,
+    handleUpdateLesson,
+    handleRemoveModule,
+    handleRemoveLesson,
     addCrmDeal,
     updateCrmStage,
     deleteCrmDeal

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, DragEvent } from 'react';
 import type { CrmDeal, Contact, CrmStage } from '../types';
 import { PlusIcon } from './icons/PlusIcon';
 import { TrashIcon } from './icons/TrashIcon';
@@ -10,17 +10,48 @@ type DealCardProps = {
   contact: Contact | undefined;
   onMove: (newStage: CrmStage) => void;
   onDelete: () => void;
+  setDraggedDealId: (id: string | null) => void;
+  isDragging: boolean;
+  setCurrentView: (view: string) => void;
 };
 
-const DealCard: React.FC<DealCardProps> = ({ deal, contact, onMove, onDelete }) => {
-    const stages: CrmStage[] = ['New', 'Qualified', 'Proposal', 'Won'];
+const formatCurrency = (value: number) => {
+    return value.toLocaleString('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 0
+    });
+};
+
+const DealCard: React.FC<DealCardProps> = ({ deal, contact, onMove, onDelete, setDraggedDealId, isDragging, setCurrentView }) => {
+    const stages: CrmStage[] = ['New', 'Qualified', 'Proposal', 'Won', 'Lost'];
     const currentStageIndex = stages.indexOf(deal.stage);
 
+    const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', deal.id); // Standard data type
+        setDraggedDealId(deal.id);
+    };
+
+    const handleDragEnd = () => {
+        setDraggedDealId(null);
+    };
+
     return (
-      <div className="bg-white dark:bg-gray-700 rounded-lg shadow-sm p-4 mb-4 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-all relative group">
+      <div 
+        draggable
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        className={`bg-white dark:bg-gray-700 rounded-lg shadow-sm p-4 mb-4 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-all relative group cursor-grab active:cursor-grabbing ${isDragging ? 'opacity-50 ring-2 ring-primary-400' : ''}`}
+      >
         <div className="flex justify-between items-start">
             <div>
-                <h4 className="font-bold text-gray-800 dark:text-gray-100 text-lg">{deal.name}</h4>
+                <button 
+                    onClick={() => setCurrentView(`crm/${deal.id}`)}
+                    className="font-bold text-gray-800 dark:text-gray-100 text-lg hover:text-primary-600 dark:hover:text-primary-400 text-left"
+                >
+                    {deal.name}
+                </button>
                 <div className="flex items-center mt-2">
                     {contact && (
                         <img src={contact.avatar} alt={contact.name} className="w-6 h-6 rounded-full mr-2" />
@@ -39,10 +70,9 @@ const DealCard: React.FC<DealCardProps> = ({ deal, contact, onMove, onDelete }) 
         
         <div className="mt-4 flex items-center justify-between">
             <p className="text-md font-bold text-primary-600 dark:text-primary-400">
-              ${deal.value.toLocaleString()}
+              {formatCurrency(deal.value)}
             </p>
             
-            {/* Move Controls */}
             <div className="flex space-x-1">
                 <button 
                     disabled={currentStageIndex === 0}
@@ -72,29 +102,76 @@ type CrmColumnProps = {
   contacts: Contact[];
   onMoveDeal: (dealId: string, newStage: CrmStage) => void;
   onDeleteDeal: (dealId: string) => void;
+  draggedDealId: string | null;
+  setDraggedDealId: (id: string | null) => void;
+  setCurrentView: (view: string) => void;
 };
 
-const CrmColumn: React.FC<CrmColumnProps> = ({ stage, deals, contacts, onMoveDeal, onDeleteDeal }) => {
+const CrmColumn: React.FC<CrmColumnProps> = ({ stage, deals, contacts, onMoveDeal, onDeleteDeal, draggedDealId, setDraggedDealId, setCurrentView }) => {
+    const [isDragOver, setIsDragOver] = useState(false);
+
     const stageColors: { [key in CrmStage]: string } = {
         'New': 'border-t-blue-500',
         'Qualified': 'border-t-yellow-500',
         'Proposal': 'border-t-purple-500',
         'Won': 'border-t-green-500',
+        'Lost': 'border-t-gray-500 dark:border-t-gray-400',
     };
 
     const totalValue = deals.reduce((sum, d) => sum + d.value, 0);
 
+    const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        // Only set active if we are truly dragging something
+        if (draggedDealId) {
+            setIsDragOver(true);
+        }
+    };
+
+    const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        if (draggedDealId) {
+            setIsDragOver(true);
+        }
+    };
+
+    const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+        // prevent flickering when dragging over children
+        if (e.currentTarget.contains(e.relatedTarget as Node)) {
+             return;
+        }
+        setIsDragOver(false);
+    };
+
+    const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        
+        // Reliable state-based drop
+        if (draggedDealId) {
+            onMoveDeal(draggedDealId, stage);
+            setDraggedDealId(null);
+        }
+    };
+
     return (
-        <div className={`flex-1 min-w-[300px] bg-gray-100 dark:bg-gray-800/50 rounded-lg p-4 border-t-4 ${stageColors[stage]} flex flex-col h-full`}>
+        <div 
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`flex-1 min-w-[300px] bg-gray-100 dark:bg-gray-800/50 rounded-lg p-4 border-t-4 ${stageColors[stage]} flex flex-col h-full transition-colors duration-200 ${isDragOver ? 'bg-blue-50 dark:bg-gray-700 ring-2 ring-primary-400' : ''}`}
+        >
           <div className="mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex justify-between items-center">
                   {stage} 
                   <span className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs px-2 py-1 rounded-full">{deals.length}</span>
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total: ${totalValue.toLocaleString()}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total: {formatCurrency(totalValue)}</p>
           </div>
           
-          <div className="flex-grow overflow-y-auto space-y-3 pr-1 custom-scrollbar">
+          <div className="flex-grow overflow-y-auto space-y-3 pr-1 custom-scrollbar min-h-[200px]">
             {deals.map(deal => {
               const contact = contacts.find(c => c.id === deal.contactId);
               return (
@@ -104,12 +181,15 @@ const CrmColumn: React.FC<CrmColumnProps> = ({ stage, deals, contacts, onMoveDea
                     contact={contact} 
                     onMove={(newStage) => onMoveDeal(deal.id, newStage)}
                     onDelete={() => onDeleteDeal(deal.id)}
+                    setDraggedDealId={setDraggedDealId}
+                    isDragging={draggedDealId === deal.id}
+                    setCurrentView={setCurrentView}
                 />
             );
             })}
             {deals.length === 0 && (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg text-gray-400 text-sm">
-                    No deals
+                <div className={`text-center py-8 border-2 border-dashed rounded-lg text-gray-400 text-sm transition-colors ${isDragOver ? 'border-primary-400 bg-white dark:bg-gray-600 text-primary-500' : 'border-gray-300 dark:border-gray-700'}`}>
+                    {isDragOver ? 'Drop Deal Here' : 'No deals'}
                 </div>
             )}
           </div>
@@ -120,25 +200,27 @@ const CrmColumn: React.FC<CrmColumnProps> = ({ stage, deals, contacts, onMoveDea
 type CrmBoardProps = {
   deals: CrmDeal[];
   contacts: Contact[];
+  setCurrentView: (view: string) => void;
 };
 
-export const CrmBoard: React.FC<CrmBoardProps> = ({ deals, contacts }) => {
-  const stages: CrmStage[] = ['New', 'Qualified', 'Proposal', 'Won'];
+export const CrmBoard: React.FC<CrmBoardProps> = ({ deals, contacts, setCurrentView }) => {
+  const stages: CrmStage[] = ['New', 'Qualified', 'Proposal', 'Won', 'Lost'];
   const { addCrmDeal, updateCrmStage, deleteCrmDeal } = useAdminData();
+  
+  const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // Form State
   const [dealName, setDealName] = useState('');
   const [dealValue, setDealValue] = useState('');
   const [selectedContact, setSelectedContact] = useState('');
   const [selectedStage, setSelectedStage] = useState<CrmStage>('New');
 
-  const totalPipelineValue = deals.reduce((sum, d) => sum + d.value, 0);
+  const totalPipelineValue = deals.filter(d => d.stage !== 'Lost').reduce((sum, d) => sum + d.value, 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!dealName || !selectedContact || !dealValue) return;
+      if (!dealName || !selectedContact || dealValue === '') return;
 
       await addCrmDeal({
           name: dealName,
@@ -160,7 +242,7 @@ export const CrmBoard: React.FC<CrmBoardProps> = ({ deals, contacts }) => {
             <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">CRM Pipeline</h2>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-                    Total Pipeline Value: <span className="font-bold text-green-600 dark:text-green-400">${totalPipelineValue.toLocaleString()}</span>
+                    Active Pipeline Value: <span className="font-bold text-green-600 dark:text-green-400">{formatCurrency(totalPipelineValue)}</span>
                 </p>
             </div>
             <button 
@@ -181,11 +263,13 @@ export const CrmBoard: React.FC<CrmBoardProps> = ({ deals, contacts }) => {
                     contacts={contacts}
                     onMoveDeal={updateCrmStage}
                     onDeleteDeal={deleteCrmDeal}
+                    draggedDealId={draggedDealId}
+                    setDraggedDealId={setDraggedDealId}
+                    setCurrentView={setCurrentView}
                 />
             ))}
         </div>
 
-        {/* Add Deal Modal */}
         {isModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6 animate-fade-in-right">
@@ -209,7 +293,7 @@ export const CrmBoard: React.FC<CrmBoardProps> = ({ deals, contacts }) => {
                         </div>
                         
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Value ($)</label>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Value (₹)</label>
                             <input 
                                 type="number" 
                                 required
@@ -256,7 +340,7 @@ export const CrmBoard: React.FC<CrmBoardProps> = ({ deals, contacts }) => {
                                 Cancel
                             </button>
                             <button 
-                                type="submit"
+                                type="submit" 
                                 className="px-4 py-2 bg-primary-600 text-white font-bold rounded hover:bg-primary-700"
                             >
                                 Create Deal
