@@ -29,7 +29,7 @@ const AdminCourseList = lazy(() => import('./components/AdminCourseList').then(m
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [userRole, setUserRole] = useState<UserRole>('admin'); // In V2.0, this should eventually come from the DB profile
+  const [userRole, setUserRole] = useState<UserRole>('admin'); // Default role
   const [currentView, setCurrentView] = useState('dashboard');
   const { courses, contacts, deals, invoices, toggleLessonCompletion, enrollInCourse, addNote, addDocument, loading, addNewContact } = useAdminData();
   const [theme, toggleTheme] = useDarkMode();
@@ -38,29 +38,55 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!supabase) {
-        // If keys are missing, we bypass auth check to show the "Missing Keys" error in Auth component
-        // or strictly we could show a dev mode banner. For now, let's default to no session to show Auth UI.
         setAuthLoading(false);
         return;
     }
 
+    const handleSession = (session: Session | null) => {
+        setSession(session);
+        if (session?.user?.email) {
+            // Simple role logic for V2: 'admin' in email = Admin role, else Student
+            const email = session.user.email.toLowerCase();
+            if (email.includes('admin')) {
+                setUserRole('admin');
+            } else if (email.includes('staff')) {
+                setUserRole('staff');
+            } else {
+                setUserRole('student');
+                // Ensure students land on their dashboard, not the admin one
+                if (currentView === 'dashboard') {
+                    setCurrentView('my-courses');
+                }
+            }
+        }
+        setAuthLoading(false);
+    };
+
     // Check for initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
+        handleSession(session);
     });
 
     // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+        handleSession(session);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // We remove currentView dependency to prevent loops, rely on initial check
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+
+  const handleSignOut = async () => {
+    if (supabase) {
+        await supabase.auth.signOut();
+        setSession(null);
+        // Role reset isn't strictly necessary as Auth component takes over, but good for cleanup
+        setUserRole('admin'); 
+    }
+  };
 
   const currentViewLabel = useMemo(() => {
     const labels: { [key: string]: string } = {
@@ -123,6 +149,7 @@ const App: React.FC = () => {
             case 'my-courses': return <StudentDashboard courses={courses} setCurrentView={setCurrentView} />;
             case 'catalog': return <CourseList courses={courses} setCurrentView={(view) => setCurrentView(`my-courses/${view.split('/')[1]}`)} enrollInCourse={enrollInCourse} />;
             case 'study-buddy': return <StudyBuddy />;
+            // Default fallback for students who might have 'dashboard' in state
             default: return <StudentDashboard courses={courses} setCurrentView={setCurrentView} />;
         }
     }
@@ -189,10 +216,7 @@ const App: React.FC = () => {
     );
   }
 
-  // V2.0 AUTH GUARD
-  // If we have keys but no session, show Auth.
-  // If we don't have keys (dev mode w/o supabase), we might want to bypass this, 
-  // but for V2 "Production" we assume keys are needed.
+  // Auth Guard: Show Login screen if no session
   if (!session && supabase) {
       return (
           <div className="bg-gray-100 dark:bg-gray-900 h-screen w-screen">
@@ -201,7 +225,7 @@ const App: React.FC = () => {
       );
   }
 
-  // If no supabase client is initialized (keys missing), Auth component handles the warning message
+  // Fallback if Supabase is not configured (Dev Mode warning inside Auth component)
   if (!supabase) {
       return <Auth />;
   }
@@ -219,6 +243,8 @@ const App: React.FC = () => {
           theme={theme}
           toggleTheme={toggleTheme}
           userRole={userRole}
+          userEmail={session?.user?.email}
+          onSignOut={handleSignOut}
         />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900 p-4 sm:p-6">
           <div className="max-w-7xl mx-auto">
