@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Course, Contact, CrmDeal, Invoice, Note, Document, Lesson } from '../types';
+import type { Course, Contact, CrmDeal, Invoice, Note, Document, Lesson, CrmStage } from '../types';
 import * as api from '../services/api';
 import { useToast } from '../components/Toast';
 
@@ -175,8 +175,10 @@ export const useAdminData = () => {
 
   const handleAddModule = useCallback(async (courseId: string, moduleTitle: string) => {
     try {
-        const updatedCourse = await api.addModule(courseId, moduleTitle);
-        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        await api.addModule(courseId, moduleTitle);
+        // Force fetch to ensure data integrity
+        const refreshedCourses = await api.getCourses();
+        setCourses(refreshedCourses);
         addToast("Module added successfully", "success");
     } catch (error) {
         console.error(error);
@@ -186,14 +188,58 @@ export const useAdminData = () => {
 
   const handleAddLesson = useCallback(async (courseId: string, moduleId: string, lesson: Omit<Lesson, 'id' | 'completed'>) => {
     try {
-        const updatedCourse = await api.addLesson(courseId, moduleId, lesson);
-        setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+        await api.addLesson(courseId, moduleId, lesson);
+         // Force fetch to ensure data integrity
+        const refreshedCourses = await api.getCourses();
+        setCourses(refreshedCourses);
         addToast("Lesson added successfully", "success");
     } catch (error) {
         console.error(error);
         addToast("Failed to add lesson", "error");
     }
   }, [addToast]);
+
+  // --- CRM ACTIONS ---
+  
+  const addCrmDeal = useCallback(async (dealData: Omit<CrmDeal, 'id'>) => {
+    try {
+        const newDeal = await api.addDeal(dealData);
+        setDeals(prev => [...prev, newDeal]);
+        addToast("Deal created successfully!", "success");
+        return newDeal;
+    } catch (error) {
+        console.error(error);
+        addToast("Failed to create deal.", "error");
+    }
+  }, [addToast]);
+
+  const updateCrmStage = useCallback(async (dealId: string, newStage: CrmStage) => {
+      const originalDeals = deals;
+      // Optimistic Update
+      setDeals(prev => prev.map(d => d.id === dealId ? {...d, stage: newStage} : d));
+      
+      try {
+          await api.updateDealStage(dealId, newStage);
+      } catch (error) {
+          console.error(error);
+          setDeals(originalDeals); // Revert
+          addToast("Failed to update deal stage.", "error");
+      }
+  }, [deals, addToast]);
+
+  const deleteCrmDeal = useCallback(async (dealId: string) => {
+      const originalDeals = deals;
+      setDeals(prev => prev.filter(d => d.id !== dealId));
+      
+      try {
+          await api.deleteDeal(dealId);
+          addToast("Deal deleted.", "success");
+      } catch (error) {
+          console.error(error);
+          setDeals(originalDeals);
+          addToast("Failed to delete deal.", "error");
+      }
+  }, [deals, addToast]);
 
   return { 
     courses, 
@@ -208,6 +254,9 @@ export const useAdminData = () => {
     addNewContact, 
     addNewCourse,
     handleAddModule,
-    handleAddLesson
+    handleAddLesson,
+    addCrmDeal,
+    updateCrmStage,
+    deleteCrmDeal
   };
 };
