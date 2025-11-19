@@ -24,8 +24,12 @@ export const LessonManager: React.FC<LessonManagerProps> = ({ course, setCurrent
     const [videoUrl, setVideoUrl] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // SAFETY: Ensure modules is always an array
-    const modules = course.modules || [];
+    if (!course) {
+        return <div className="p-8 text-center">Loading course data...</div>;
+    }
+
+    // SAFETY: Ensure modules is always an array, strict check
+    const modules = Array.isArray(course.modules) ? course.modules : [];
 
     const handleSubmitModule = async (e: React.FormEvent) => {
         e.preventDefault();

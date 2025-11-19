@@ -8,6 +8,25 @@ const handleError = (error: any) => {
   throw new Error(error.message || 'An unexpected error occurred');
 };
 
+// --- DATA SANITIZER ---
+// This ensures that even if the DB returns null/undefined for JSON fields,
+// our app always gets valid Arrays.
+const sanitizeCourse = (data: any): Course => {
+    if (!data) return data;
+    
+    const modules = Array.isArray(data.modules) ? data.modules : [];
+    
+    const sanitizedModules = modules.map((mod: any) => ({
+        ...mod,
+        lessons: Array.isArray(mod.lessons) ? mod.lessons : []
+    }));
+
+    return {
+        ...data,
+        modules: sanitizedModules
+    } as Course;
+}
+
 export const getCourses = async (): Promise<Course[]> => {
   const { data, error } = await supabase
     .from('courses')
@@ -16,11 +35,7 @@ export const getCourses = async (): Promise<Course[]> => {
   
   if (error) handleError(error);
   
-  // SAFTEY CHECK: Ensure modules is always an array, even if DB returns null
-  return (data || []).map((course: any) => ({
-      ...course,
-      modules: course.modules || []
-  })) as Course[];
+  return (data || []).map(sanitizeCourse);
 };
 
 export const getContacts = async (): Promise<Contact[]> => {
@@ -68,7 +83,8 @@ export const updateLessonCompletion = async (courseId: string, moduleId: string,
 
   if (fetchError) handleError(fetchError);
 
-  const modules = (course.modules || []) as Module[];
+  const sanitized = sanitizeCourse(course);
+  const modules = sanitized.modules;
   let targetLesson: Lesson | null = null;
   
   const updatedModules = modules.map(m => {
@@ -108,8 +124,7 @@ export const updateCourseCompletionDate = async (courseId: string, date: string)
     .single();
 
   if (error) handleError(error);
-  // Ensure modules is array in return
-  return { ...data, modules: data.modules || [] } as Course;
+  return sanitizeCourse(data);
 };
 
 export const enrollInCourse = async (courseId: string): Promise<Course> => {
@@ -121,7 +136,7 @@ export const enrollInCourse = async (courseId: string): Promise<Course> => {
     .single();
 
   if (error) handleError(error);
-  return { ...data, modules: data.modules || [] } as Course;
+  return sanitizeCourse(data);
 };
 
 export const addNoteToContact = async (contactId: string, note: Note): Promise<Contact> => {
@@ -213,14 +228,14 @@ export const addCourse = async (courseData: Omit<Course, 'id' | 'enrolled' | 'co
       instructor: courseData.instructor,
       description: courseData.description,
       thumbnail: courseData.thumbnail,
-      modules: courseData.modules || [], // Ensure we save an empty array if undefined
+      modules: courseData.modules || [], 
       enrolled: false
     })
     .select()
     .single();
 
   if (error) handleError(error);
-  return { ...data, modules: data.modules || [] } as Course;
+  return sanitizeCourse(data);
 };
 
 // --- NEW V2.1 FUNCTIONS FOR LESSON MANAGER ---
@@ -235,6 +250,8 @@ export const addModule = async (courseId: string, moduleTitle: string): Promise<
     
     if (fetchError) handleError(fetchError);
 
+    const sanitized = sanitizeCourse(course);
+
     // 2. Create new module
     const newModule: Module = {
         id: `mod-${Date.now()}`,
@@ -242,9 +259,8 @@ export const addModule = async (courseId: string, moduleTitle: string): Promise<
         lessons: []
     };
 
-    // 3. Append to existing modules (SAFE CHECK for null)
-    const currentModules = (course.modules || []) as Module[];
-    const updatedModules = [...currentModules, newModule];
+    // 3. Append to existing modules
+    const updatedModules = [...sanitized.modules, newModule];
 
     // 4. Save back to DB
     const { data: updatedCourse, error: updateError } = await supabase
@@ -255,7 +271,7 @@ export const addModule = async (courseId: string, moduleTitle: string): Promise<
         .single();
 
     if (updateError) handleError(updateError);
-    return { ...updatedCourse, modules: updatedCourse.modules || [] } as Course;
+    return sanitizeCourse(updatedCourse);
 };
 
 export const addLesson = async (courseId: string, moduleId: string, lesson: Omit<Lesson, 'id' | 'completed'>): Promise<Course> => {
@@ -268,6 +284,8 @@ export const addLesson = async (courseId: string, moduleId: string, lesson: Omit
 
     if (fetchError) handleError(fetchError);
 
+    const sanitized = sanitizeCourse(course);
+
     // 2. Prepare the new lesson
     const newLesson: Lesson = {
         ...lesson,
@@ -275,14 +293,12 @@ export const addLesson = async (courseId: string, moduleId: string, lesson: Omit
         completed: false
     };
 
-    // 3. Insert lesson into the correct module (SAFE CHECK for null)
-    const currentModules = (course.modules || []) as Module[];
-    
-    const updatedModules = currentModules.map(mod => {
+    // 3. Insert lesson into the correct module
+    const updatedModules = sanitized.modules.map(mod => {
         if (mod.id === moduleId) {
             return {
                 ...mod,
-                lessons: [...(mod.lessons || []), newLesson] // Ensure lessons is array
+                lessons: [...(mod.lessons || []), newLesson] 
             };
         }
         return mod;
@@ -297,5 +313,5 @@ export const addLesson = async (courseId: string, moduleId: string, lesson: Omit
         .single();
 
     if (updateError) handleError(updateError);
-    return { ...updatedCourse, modules: updatedCourse.modules || [] } as Course;
+    return sanitizeCourse(updatedCourse);
 };
