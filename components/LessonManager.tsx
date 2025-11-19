@@ -24,6 +24,9 @@ export const LessonManager: React.FC<LessonManagerProps> = ({ course, setCurrent
     const [videoUrl, setVideoUrl] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // SAFETY: Ensure modules is always an array
+    const modules = course.modules || [];
+
     const handleSubmitModule = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!moduleTitle.trim()) return;
@@ -71,7 +74,7 @@ export const LessonManager: React.FC<LessonManagerProps> = ({ course, setCurrent
             </div>
 
             <div className="space-y-4">
-                {course.modules.map((module) => (
+                {modules.map((module) => (
                     <div key={module.id} className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                         <div className="p-4 bg-gray-50 dark:bg-gray-700/50 border-b dark:border-gray-700 flex justify-between items-center">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{module.title}</h3>
@@ -157,7 +160,7 @@ export const LessonManager: React.FC<LessonManagerProps> = ({ course, setCurrent
                         )}
 
                         <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                            {module.lessons.length === 0 ? (
+                            {(!module.lessons || module.lessons.length === 0) ? (
                                 <p className="p-4 text-sm text-gray-400 italic">No lessons in this module yet.</p>
                             ) : (
                                 module.lessons.map(lesson => (
